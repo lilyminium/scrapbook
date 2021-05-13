@@ -1,0 +1,26 @@
+name: ncaa-openmm
+
+channels:
+  - conda-forge
+  - psi4
+  - openeye
+
+dependencies:
+  - python==3.7
+  - openmm
+  - mdanalysis
+  - psi4
+  - jupyter_contrib_nbextensions
+  - nglview
+  - ipykernel
+  - rdkit
+  - pydantic
+  - networkx
+  - openff-toolkit-base>=0.9.2
+  - openeye-toolkits
+  - qcportal
+  - qcfractal
+  - pip:
+    - git+https://github.com/openforcefield/fragmenter.git@master
+    - git+https://github.com/lilyminium/psiresp.git@5097c4617356a6a3848cc48f2af455a7ea90c2d3
+
