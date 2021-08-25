@@ -10,9 +10,8 @@
 echo $CUDA_VISIBLE_DEVICES
 
 . "/data/homezvol0/lilyw7/miniconda3/etc/profile.d/conda.sh"
-
 export OE_LICENSE=/data/homezvol0/lilyw7/oe_license.txt
-export ELF10=true
+export ELF10=false
 
 conda activate polymetrizer
 

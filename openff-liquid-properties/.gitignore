@@ -1,0 +1,3 @@
+working/
+dask-worker-space
+*.sh.log*
