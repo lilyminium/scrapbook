@@ -3,7 +3,7 @@
 #SBATCH -p free-gpu          ## partition/queue name
 #SBATCH --nodes=1            ## (-N) number of nodes to use
 #SBATCH --ntasks=1           ## (-n) number of tasks to launch
-#SBATCH -t 3000
+#SBATCH -t 100
 #SBATCH --gres=gpu:V100:1 
 #SBATCH --output=%x.log%A
 
