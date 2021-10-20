@@ -25,7 +25,6 @@ from utils import property_from_csv
 
 parser = argparse.ArgumentParser("Evaluate properties")
 parser.add_argument("entry_index", type=int)
-parser.add_argument("--component", type=str, default="solvent")
 
 METHODS = {
     "hf": {"method": "hf", "basis": "6-31g*"},
@@ -63,8 +62,8 @@ class TestEntry:
 
     
     def run(self, backend):
-        ffs = self.generate_resp2_ffs()
-        ffs += self.generate_am1bcc_ffs()
+        ffs = self.generate_am1bcc_ffs()
+        ffs += self.generate_resp2_ffs()
 
         for ff in tqdm.tqdm(ffs):
             self.execute_single_workflow(backend, **f)
@@ -101,16 +100,24 @@ class TestEntry:
 
 
     def generate_resp2_ffs(self):
-        COLS = ["Method", "Weight", "Delta", "Grid"]
+        COLS = ["Method", "Delta", "Grid"]
 
         df1 = self.component_1_df[self.component_1_df == "RESP2"]
+        df1 = df1[df1.Weight == 1]
+        df1 = df1[df1.Grid == "resp2"]
+        df1_rounded = df1.Delta.round(2)
+        df1 = df1[(df1_rounded == 0) | (df1_rounded == 0.6) | (df1_rounded == 1)]
         df2 = self.component_2_df[self.component_2_df == "RESP2"]
+        df2 = df2[df2.Weight == 1]
+        df2 = df2[df2.Grid == "resp2"]
+        df2_rounded = df2.Delta.round(2)
+        df2 = df2[(df2_rounded == 0) | (df2_rounded == 0.6) | (df2_rounded == 1)]
 
         forcefields = []
 
-        for (method, weight, delta, grid), df1_ in df1.groupby(by=COLS):
+        for (method, delta, grid), df1_ in df1.groupby(by=COLS):
             df1_ = df1_.sort_values("charge", inplace=False)
-            df2_ = df2[(df2.Method == method) & (df2.Weight == weight) & (df2.Delta == delta) & (df2.Grid == grid)]
+            df2_ = df2[(df2.Method == method) & (df2.Delta == delta) & (df2.Grid == grid)]
             df2_ = df2_.sort_values("charge", inplace=False)
 
             assert len(df1_.charge.values) == max(df1_["Atom number"].values)
@@ -135,16 +142,20 @@ class TestEntry:
         
 
     def generate_am1bcc_ffs(self):
-        COLS = ["Method", "Conformer", "Orientation"]
+        COLS = ["Method", "Conformer"]
 
         df1 = self.component_1_df[self.component_1_df == "AM1BCC"]
+        df1 = df1[df1.Orientation == 1]
+        df1 = df1[df1.Conformer == 1]
         df2 = self.component_2_df[self.component_2_df == "AM1BCC"]
+        df2 = df2[df2.Orientation == 1]
+        df2 = df2[df2.Conformer == 1]
 
         forcefields = []
 
-        for (tk, conf, orient), df1_ in df1.groupby(by=COLS):
+        for (tk, conf), df1_ in df1.groupby(by=COLS):
             df1_ = df1_.sort_values("charge", inplace=False)
-            df2_ = df2[(df2.Method == tk) & (df2.Conformer == conf) & (df2.Orientation == orient)]
+            df2_ = df2[(df2.Method == tk) & (df2.Conformer == conf)]
             df2_ = df2_.sort_values("charge", inplace=False)
 
             assert len(df1_.charge.values) == max(df1_["Atom number"].values)
