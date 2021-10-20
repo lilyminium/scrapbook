@@ -46,10 +46,12 @@ def create_constraint_matrix(mol, esps):
     return matrix
 
 
-def compute_charges(client, ids, weight=None, grid_options=None):
+def compute_orientation_esps(client, ids, grid_options=None):
     records = client.query_results(id=ids)
-    esps = compute_esps(records, grid_options=grid_options, weight=weight)
-    qcmol = records[0].get_molecule()
+    esps = compute_esps(records, grid_options=grid_options)
+    return esps
+
+def compute_charges(qcmol, esps):
     mol = Molecule(qcmol=qcmol)
     surface_constraints = create_constraint_matrix(mol, esps)
 

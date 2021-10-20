@@ -6,7 +6,7 @@ from info import PROTOCOLS, PCM_KEYWORDS
 
 def run_geometry_optimization(client, qcmols, method="PW6B95", basis="cc-pV(D+d)Z", **kwargs):
     spec = {
-        "keywords": None,
+        "keywords": {"maxiter": 300, "geom_maxiter": 300},
         "qc_spec": {
             "driver": "gradient",
             "method": method,
