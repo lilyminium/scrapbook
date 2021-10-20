@@ -5,14 +5,21 @@ import argparse
 import pathlib
 import itertools
 import json
+import tqdm
+import os
 import logging
 import time
 import glob
 
 import numpy as np
+import pandas as pd
+from numpy.testing import assert_equal
 from qcfractal import interface as ptl
 from rdkit import Chem
 from openff.toolkit.topology.molecule import Molecule, unit
+from openff.toolkit.utils import OpenEyeToolkitWrapper, AmberToolsToolkitWrapper
+
+import qcelemental as qcel
 
 from psiresp.grid import GridOptions
 from psiresp.orientation import OrientationEsp
@@ -60,6 +67,8 @@ class Smiles:
         with open("01_mnsol_smiles.dat", "r") as f:
             contents = [x.strip() for x in f.readlines()]
         self.smiles = contents[smiles_index]
+        logger.info(f"SMILES: {self.smiles}")
+        print(f"SMILES: {self.smiles}")
 
         smiles_parser = Chem.rdmolfiles.SmilesParserParams()
         smiles_parser.removeHs = False
@@ -91,6 +100,7 @@ class Smiles:
             json.dump(self.geometry_ids, f)
 
         ids = [x for v in self.geometry_ids.values() for x in v]
+        print(f"Waiting for {len(ids)} geometry results")
         wait_for_procedures(client, response_ids=ids)
 
     def _generate_orientations(self, client, combinations, key="hf"):
@@ -124,7 +134,7 @@ class Smiles:
 
     def generate_orientations(self, client):
         from orientations import generate_atom_combinations
-        combinations = generate_atom_combinations(qcmol, n_combinations=self.n_combinations)
+        combinations = generate_atom_combinations(self.conformers[0], n_combinations=self.n_combinations)
 
         self.energy_ids = {}
         self.orientations = []
@@ -137,60 +147,67 @@ class Smiles:
             json.dump(self.energy_ids, f)
 
         ids = [y for v in self.energy_ids.values() for x in v.values() for y in x]
+        print(f"Waiting for {len(ids)} orientation results")
         wait_for_results(client, response_ids=ids)
     
 
     def compute_charges(self, client):
-        from esp import compute_charges
-        n_atoms = len(self.conformers[0].atoms)
+        from esp import compute_charges, compute_orientation_esps
+        n_atoms = len(self.conformers[0].geometry)
         atom_number = list(range(1, n_atoms + 1))
+        qcmol = self.orientations[0][0]
 
         dfs = []
 
-        for key, state, weight, grid_name in tqdm.tqdm(itertools.product(METHODS, STATES, WEIGHTS, GRIDS)):
+        groups = itertools.product(METHODS, STATES, GRIDS)
+        for key, state, grid_name in tqdm.tqdm(list(groups)):
             response_ids = self.energy_ids[key]
             ids = response_ids[state]
             grid_options = GRIDS[grid_name]
 
-        # for key, response_ids in self.energy_ids.items():
-        #     for state, ids in response_ids.items():
-        #         for weight in [1, None]:
-        #             for grid_name, grid_options in GRIDS.items():
-            stage_1_charges, stage_2_charges = compute_charges(client, ids, weight=weight,
-                                                                grid_options=grid_options)
-            file1 = self.outdir / f"04_{key}_w-{weight}_g-{grid_name}_{state}_stage_1_respcharges.json"
-            file2 = self.outdir / f"04_{key}_w-{weight}_g-{grid_name}_{state}_stage_2_respcharges.json"
+            esps = compute_orientation_esps(client, ids, grid_options=grid_options)
 
-            with open(str(file1), "w") as f:
-                f.write(stage_1_charges.json())
+            for weight in WEIGHTS:
+                esps_ = [x.copy(deep=True) for x in esps]
+                for esp in esps_:
+                    esp.weight = weight
 
-            with open(str(file2), "w") as f:
-                f.write(stage_2_charges.json())
-            
-            df_ = pd.DataFrame({"stage_1_charge": stage_1_charges._charges[:n_atoms]})
-            df_["stage_2_charge"] = stage_2_charges._charges[:n_atoms]
-            df_["grid"] = grid_name
-            df_["weight"] = weight
-            df_["state"] = state
-            df_["method"] = METHOD_FULL[key]
-            df_["atom_number"] = atom_number
-            df_["smiles"] = self.smiles
-            df_["mapped_smiles"] = self._offmol.to_smiles(mapped=True)
-            dfs.append(df_)
+                stage_1_charges, stage_2_charges = compute_charges(qcmol, esps_)
+                file1 = self.outdir / f"04_{key}_w-{weight}_g-{grid_name}_{state}_stage_1_respcharges.json"
+                file2 = self.outdir / f"04_{key}_w-{weight}_g-{grid_name}_{state}_stage_2_respcharges.json"
+
+                with open(str(file1), "w") as f:
+                    f.write(stage_1_charges.json())
+
+                with open(str(file2), "w") as f:
+                    f.write(stage_2_charges.json())
+                
+                df_ = pd.DataFrame({"stage_1_charge": stage_1_charges._charges[:n_atoms]})
+                df_["stage_2_charge"] = stage_2_charges._charges[:n_atoms]
+                df_["grid"] = grid_name
+                df_["weight"] = weight
+                df_["state"] = state
+                df_["method"] = METHOD_FULL[key]
+                df_["atom_number"] = atom_number
+                df_["smiles"] = self.smiles
+                df_["mapped_smiles"] = self._offmol.to_smiles(mapped=True)
+                dfs.append(df_)
 
         df = pd.concat(dfs)
         dfname = self.outdir / f"04_charges.csv"
         df.to_csv(dfname)
         logger.info(f"Wrote to {dfname}")
+        print(f"Wrote to {dfname}")
         self.charge_df = df
 
     def to_offmol(self, conf=0, orient=0):
-        qcmol = self.orientation[conf][orient]
+        qcmol = self.orientations[conf][orient]
         
         rdel = [at.GetSymbol() for at in self.rdmol.GetAtoms()]
         assert_equal(rdel, qcmol.symbols) 
 
-        offmol = Molecule.from_rdkit(self.rdmol)
+        offmol = Molecule.from_rdkit(self.rdmol, allow_undefined_stereo=True)
+        offmol._conformers = []
         positions = qcmol.geometry * qcel.constants.conversion_factor("bohr", "angstrom")
         offmol._add_conformer(unit.Quantity(positions, unit.angstrom))
 
@@ -199,7 +216,11 @@ class Smiles:
     def _get_resp2_charges(self, delta=0.0, weight=1, key="hf", grid_name="hf"):
         # delta = % aqueous
         df = self.charge_df[self.charge_df.method == METHOD_FULL[key]]
-        df = df[df.weight == weight]
+
+        if weight is None:
+            df = df[df.weight.isna()]
+        else:
+            df = df[df.weight == weight]
         df = df[df.grid == grid_name]
         gas = df[df.state == "gas"].stage_2_charge.values
         water = df[df.state == "water"].stage_2_charge.values
@@ -229,7 +250,7 @@ class Smiles:
     def generate_charges(self):
         offmol = self.to_offmol()
         smirks = offmol.to_smiles(mapped=True)
-        atom_number = np.arange(len(offmol.atoms)) + 1
+        atom_number = list(range(1, len(offmol.atoms) + 1))
         symbols = [at.element.symbol for at in offmol.atoms]
 
         charges = []
@@ -260,6 +281,7 @@ class Smiles:
         chgfile = self.outdir / f"{self.smiles}.json"
         with open(chgfile, "w") as f:
             json.dump(charges, f)
+        print(f"Wrote to {chgfile}")
 
         dfs = []
         for dct in charges:
@@ -271,6 +293,7 @@ class Smiles:
 
         csvfile = self.outdir / "05_calculated_charges.csv"
         df.to_csv(csvfile)
+        print(f"Wrote to {csvfile}")
 
         
     def run(self, client):
@@ -284,8 +307,13 @@ class Smiles:
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    client = ptl.FractalClient(address=f"{args.server}:{args.port}", verify=False)
-    logger.info(f"client: {client}")
 
     smiler = Smiles(smiles_index=args.smiles_index)
+    csvfile = smiler.outdir / "04_charges.csv"
+    if csvfile.exists():
+        import sys
+        sys.exit()
+
+    client = ptl.FractalClient(address=f"{args.server}:{args.port}", verify=False)
+    logger.info(f"client: {client}")
     smiler.run(client)

@@ -29,6 +29,8 @@ def wait_for_procedures(client, response_ids=[], query_interval=20):
     return results
 
 def wait_for_results(client, response_ids=[], query_interval=20):
+
+    response_ids = [x for x in response_ids if x is not None]
     n_incomplete = len(response_ids)
     while(n_incomplete):
         time.sleep(query_interval)

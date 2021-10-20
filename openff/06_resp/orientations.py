@@ -5,6 +5,8 @@ import itertools
 import numpy as np
 import qcelemental as qcel
 
+import orutils
+
 def _generate_atom_combinations(symbols: List[str]):
     """Yield combinations of atom indices for transformations
 
@@ -37,7 +39,7 @@ def _generate_atom_combinations(symbols: List[str]):
     symbols = np.asarray(symbols)
     is_H = symbols == "H"
     h_atoms = list(np.flatnonzero(is_H))
-    heavy_atoms = list(np.flatnonzero(~is_H) + 1)
+    heavy_atoms = list(np.flatnonzero(~is_H))
     seen = set()
 
     for comb in itertools.combinations(heavy_atoms, 3):
@@ -67,9 +69,7 @@ def generate_atom_combinations(qcmol, n_combinations=None):
     return combinations
 
 def generate_orientations(qcmol, combinations):
-
-    if coordinates is None:
-        coordinates = qcmol.geometry
+    coordinates = qcmol.geometry 
 
     all_coordinates = []
     for indices in combinations:
